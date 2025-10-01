@@ -79,6 +79,7 @@ func (m *Memoria[K, V]) Put(key K, value V) {
     }
 }
 
+// Clear removes all entries from the cache.
 func (m *Memoria[K, V]) Clear() {
     m.mu.Lock()
     defer m.mu.Unlock()
