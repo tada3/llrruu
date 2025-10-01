@@ -1,0 +1,112 @@
+package lru
+
+import (
+    "container/list"
+    "sync"
+)
+
+// Memoria is a generic LRU cache that holds keys of type K and values of type V.
+// It is safe for concurrent use by multiple goroutines.
+type Memoria[K comparable, V any] struct {
+    capacity int
+    mu       sync.Mutex
+    cache    map[K]*list.Element
+    ll       *list.List
+}
+
+// entry is the internal data stored in each list.Element.
+type entry[K comparable, V any] struct {
+    key   K
+    value V
+}
+
+// New creates a new Memoria (LRU cache) with the specified capacity.
+// Panics if capacity is less than or equal to zero.
+func New[K comparable, V any](capacity int) *Memoria[K, V] {
+    if capacity <= 0 {
+        panic("lru: capacity must be > 0")
+    }
+    return &Memoria[K, V]{
+        capacity: capacity,
+        cache:    make(map[K]*list.Element, capacity),
+        ll:       list.New(),
+    }
+}
+
+// Get returns the value associated with the given key if present, and marks
+// the entry as recently used. The second return value is true if the key was found.
+// If the key is not present, returns (zero value, false).
+func (m *Memoria[K, V]) Get(key K) (V, bool) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+
+    if ele, ok := m.cache[key]; ok {
+        // Move the accessed element to the front (most recently used)
+        m.ll.MoveToFront(ele)
+        ent := ele.Value.(*entry[K, V])
+        return ent.value, true
+    }
+    var zero V
+    return zero, false
+}
+
+// Put inserts or updates the key-value pair into the cache. If the key already exists,
+// its value is updated and the entry is moved to the front as most recently used. If insertion
+// causes the cache to exceed its capacity, the least recently used entry is evicted.
+func (m *Memoria[K, V]) Put(key K, value V) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+
+    if ele, ok := m.cache[key]; ok {
+        // Existing entry: update value and move to front
+        m.ll.MoveToFront(ele)
+        ent := ele.Value.(*entry[K, V])
+        ent.value = value
+        return
+    }
+
+    // Insert new element at front
+    ent := &entry[K, V]{key: key, value: value}
+    ele := m.ll.PushFront(ent)
+    m.cache[key] = ele
+
+    // If over capacity, evict least recently used entry
+    if m.ll.Len() > m.capacity {
+        m.evict()
+    }
+}
+
+// evict removes the least recently used entry (from the back of the list).
+// It must be called with the lock held.
+func (m *Memoria[K, V]) evict() {
+    ele := m.ll.Back()
+    if ele == nil {
+        return
+    }
+    m.ll.Remove(ele)
+    ent := ele.Value.(*entry[K, V])
+    delete(m.cache, ent.key)
+}
+
+// Len returns the current number of entries in the cache.
+func (m *Memoria[K, V]) Len() int {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+
+    return m.ll.Len()
+}
+
+// Keys returns a slice of keys ordered from least recently used to most recently used.
+// This function is mainly for testing or debugging; it acquires a lock during execution.
+func (m *Memoria[K, V]) Keys() []K {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+
+    n := m.ll.Len()
+    keys := make([]K, 0, n)
+    for e := m.ll.Back(); e != nil; e = e.Prev() {
+        ent := e.Value.(*entry[K, V])
+        keys = append(keys, ent.key)
+    }
+    return keys
+}
