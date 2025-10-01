@@ -8,7 +8,10 @@ import (
 )
 
 func TestBasicPutGet(t *testing.T) {
-    cache := New[string, int](2)
+    cache, err := New[string, int](2)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
 
     // Get on empty cache
     if v, ok := cache.Get("a"); ok {
@@ -48,7 +51,10 @@ func TestBasicPutGet(t *testing.T) {
 }
 
 func TestEvictionOrder(t *testing.T) {
-    cache := New[string, int](2) 
+    cache, err := New[string, int](2) 
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
     cache.Put("a", 1)
     cache.Put("b", 2)
     // この時点で a が LRU, b が MRU
@@ -85,7 +91,10 @@ func TestEvictionOrder(t *testing.T) {
 }
 
 func TestKeysOrder(t *testing.T) {
-    cache := New[string, int](3)
+    cache, err := New[string, int](3)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
     cache.Put("a", 1)
     cache.Put("b", 2)
     cache.Put("c", 3)
@@ -112,7 +121,10 @@ func TestKeysOrder(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-    cache := New[int, int](100) 
+    cache, err := New[int, int](100) 
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
     const n = 1000
     var wg sync.WaitGroup
     wg.Add(2)
@@ -154,7 +166,10 @@ func TestConcurrentAccess(t *testing.T) {
 
 // benchmark
 func BenchmarkPutGet(b *testing.B) {
-    cache := New[string, int](3000)
+    cache, err := New[string, int](3000)
+    if err != nil {
+        b.Fatalf("unexpected error: %v", err)
+    }
 	b.ResetTimer() 
     b.RunParallel(func(pb *testing.PB) {
         i := 0
@@ -176,7 +191,10 @@ func BenchmarkPutGet(b *testing.B) {
 
 // For debugging prints (not required)
 func ExampleMemoria() {
-    cache := New[string, int](2) 
+    cache, err := New[string, int](2) 
+    if err != nil {
+        panic(err)
+    }
     cache.Put("a", 1)
     cache.Put("b", 2)
     v, ok := cache.Get("a")

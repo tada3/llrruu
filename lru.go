@@ -1,8 +1,9 @@
 package lru
 
 import (
-    "container/list"
-    "sync"
+	"container/list"
+	"errors"
+	"sync"
 )
 
 // Memoria is a generic LRU cache that holds keys of type K and values of type V.
@@ -23,15 +24,15 @@ type entry[K comparable, V any] struct {
 
 // New creates a new Memoria (LRU cache) with the specified capacity.
 // Panics if capacity is less than or equal to zero.
-func New[K comparable, V any](capacity int) *Memoria[K, V] {
+func New[K comparable, V any](capacity int) (*Memoria[K, V], error) {
     if capacity <= 0 {
-        panic("lru: capacity must be > 0")
+        return nil, errors.New("capacity must be greater than 0")   
     }
     return &Memoria[K, V]{
         capacity: capacity,
         dict:    make(map[K]*list.Element, capacity),
         ll:       list.New(),
-    }
+    }, nil
 }
 
 // Get returns the value associated with the given key if present, and marks
@@ -78,6 +79,15 @@ func (m *Memoria[K, V]) Put(key K, value V) {
     }
 }
 
+func (m *Memoria[K, V]) Clear() {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+
+    m.dict = make(map[K]*list.Element, m.capacity)
+    m.ll.Init()
+    m.len = 0    
+}
+
 // evict removes the least recently used entry (from the back of the list).
 // It must be called with the lock held.
 func (m *Memoria[K, V]) evict() {
@@ -105,8 +115,7 @@ func (m *Memoria[K, V]) Keys() []K {
     m.mu.Lock()
     defer m.mu.Unlock()
 
-    n := m.ll.Len()
-    keys := make([]K, 0, n)
+    keys := make([]K, 0, m.len)
     for e := m.ll.Back(); e != nil; e = e.Prev() {
         ent := e.Value.(*entry[K, V])
         keys = append(keys, ent.key)
