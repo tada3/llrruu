@@ -10,8 +10,9 @@ import (
 type Memoria[K comparable, V any] struct {
     capacity int
     mu       sync.Mutex
-    cache    map[K]*list.Element
+    dict    map[K]*list.Element
     ll       *list.List
+    len int
 }
 
 // entry is the internal data stored in each list.Element.
@@ -28,7 +29,7 @@ func New[K comparable, V any](capacity int) *Memoria[K, V] {
     }
     return &Memoria[K, V]{
         capacity: capacity,
-        cache:    make(map[K]*list.Element, capacity),
+        dict:    make(map[K]*list.Element, capacity),
         ll:       list.New(),
     }
 }
@@ -40,7 +41,7 @@ func (m *Memoria[K, V]) Get(key K) (V, bool) {
     m.mu.Lock()
     defer m.mu.Unlock()
 
-    if ele, ok := m.cache[key]; ok {
+    if ele, ok := m.dict[key]; ok {
         // Move the accessed element to the front (most recently used)
         m.ll.MoveToFront(ele)
         ent := ele.Value.(*entry[K, V])
@@ -57,7 +58,7 @@ func (m *Memoria[K, V]) Put(key K, value V) {
     m.mu.Lock()
     defer m.mu.Unlock()
 
-    if ele, ok := m.cache[key]; ok {
+    if ele, ok := m.dict[key]; ok {
         // Existing entry: update value and move to front
         m.ll.MoveToFront(ele)
         ent := ele.Value.(*entry[K, V])
@@ -68,10 +69,11 @@ func (m *Memoria[K, V]) Put(key K, value V) {
     // Insert new element at front
     ent := &entry[K, V]{key: key, value: value}
     ele := m.ll.PushFront(ent)
-    m.cache[key] = ele
+    m.dict[key] = ele
+    m.len++
 
     // If over capacity, evict least recently used entry
-    if m.ll.Len() > m.capacity {
+    if m.len > m.capacity {
         m.evict()
     }
 }
@@ -85,7 +87,8 @@ func (m *Memoria[K, V]) evict() {
     }
     m.ll.Remove(ele)
     ent := ele.Value.(*entry[K, V])
-    delete(m.cache, ent.key)
+    delete(m.dict, ent.key)
+    m.len--
 }
 
 // Len returns the current number of entries in the cache.
@@ -93,7 +96,7 @@ func (m *Memoria[K, V]) Len() int {
     m.mu.Lock()
     defer m.mu.Unlock()
 
-    return m.ll.Len()
+    return m.len
 }
 
 // Keys returns a slice of keys ordered from least recently used to most recently used.
