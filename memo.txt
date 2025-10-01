@@ -1,0 +1,10 @@
+2025-10-01
+
+llrruu %go test -bench=.
+goos: darwin
+goarch: arm64
+pkg: github.com/tada3/llrruu
+cpu: Apple M3 Pro
+BenchmarkPutGet-11    	 6090918	       187.1 ns/op
+PASS
+ok  	github.com/tada3/llrruu	1.620s

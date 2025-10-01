@@ -151,15 +151,24 @@ func TestConcurrentAccess(t *testing.T) {
     }
 }
 
-// Optionally a benchmark
+
+// benchmark
 func BenchmarkPutGet(b *testing.B) {
-    cache := New[int, int](1000)
+    cache := New[string, int](3000)
 	b.ResetTimer() 
     b.RunParallel(func(pb *testing.PB) {
         i := 0
         for pb.Next() {
-            cache.Put(i, i)
-            cache.Get(i)
+            x := i % 5000
+            key := fmt.Sprintf("key%d", x)
+            op := rand.Intn(10)
+            if op == 0 {
+                // put
+                cache.Put(key, x)
+            } else {
+                // get
+                cache.Get(key)
+            }
             i++
         }
     })
