@@ -49,6 +49,8 @@ func TestBasicPutGet(t *testing.T) {
 	if v, ok := cache.Get("a"); ok {
 		t.Errorf("expected a to be evicted, but got %v", v)
 	}
+
+	cache.Close()
 }
 
 func TestEvictionOrder(t *testing.T) {
@@ -78,8 +80,6 @@ func TestEvictionOrder(t *testing.T) {
 	if v, ok := cache.Get("c"); !ok || v != 3 {
 		t.Errorf("expected c to exist, got (%v, %v)", v, ok)
 	}
-
-
 
 	time.Sleep(10 * time.Millisecond) // Ensure processEvents processes the events so far
 
@@ -119,7 +119,7 @@ func TestKeysOrder(t *testing.T) {
 	_, _ = cache.Get("a")
 
 	time.Sleep(10 * time.Millisecond) // Ensure processEvents processes the Get("a")
-	
+
 	keys2 := cache.Keys()
 	want2 := []string{"b", "c", "a"}
 	for i, k := range want2 {
@@ -170,31 +170,6 @@ func TestConcurrentAccess(t *testing.T) {
 	if cache.Len() > 100 {
 		t.Errorf("cache.Len() = %d; want <= 100", cache.Len())
 	}
-}
-
-// benchmark
-func BenchmarkPutGet(b *testing.B) {
-	cache, err := New[string, int](3000)
-	if err != nil {
-		b.Fatalf("unexpected error: %v", err)
-	}
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			x := i % 5000
-			key := fmt.Sprintf("key%d", x)
-			op := rand.Intn(10)
-			if op == 0 {
-				// put
-				cache.Put(key, x)
-			} else {
-				// get
-				cache.Get(key)
-			}
-			i++
-		}
-	})
 }
 
 // For debugging prints (not required)

@@ -6,6 +6,12 @@ import (
 	"sync"
 )
 
+// entry is the internal data stored in each list.Element.
+type entry[K comparable, V any] struct {
+	key   K
+	value V
+}
+
 // Memoria is a generic LRU cache that holds keys of type K and values of type V.
 // It is safe for concurrent use by multiple goroutines.
 type Memoria[K comparable, V any] struct {
@@ -17,12 +23,9 @@ type Memoria[K comparable, V any] struct {
 
 	ch   chan *list.Element
 	done chan struct{}
-}
 
-// entry is the internal data stored in each list.Element.
-type entry[K comparable, V any] struct {
-	key   K
-	value V
+	closed bool
+	once   sync.Once
 }
 
 // New creates a new Memoria (LRU cache) with the specified capacity.
@@ -48,16 +51,32 @@ func New[K comparable, V any](capacity int) (*Memoria[K, V], error) {
 // the entry as recently used. The second return value is true if the key was found.
 // If the key is not present, returns (zero value, false).
 func (m *Memoria[K, V]) Get(key K) (V, bool) {
+	// 1. check dict
 	m.mu.RLock()
-    ele, ok := m.dict[key]
+	if m.closed {
+		m.mu.RUnlock()
+		var zero V
+		return zero, false
+	}
+	ele, ok := m.dict[key]
 	m.mu.RUnlock()
+	if !ok {
+		var zero V
+		return zero, false
+	}
 
-    if !ok {
-        var zero V
-        return zero, false
-    }
+	// 2. send event to channel
+	select {
+	case m.ch <- ele:
+	case <-m.done:
+		var zero V
+		return zero, false
+	default:
+		// channel full, skip updating LRU order to avoid blocking
+		return ele.Value.(*entry[K, V]).value, true
+	}
 
-	m.ch <- ele
+	// 3. return value
 	ent := ele.Value.(*entry[K, V])
 	return ent.value, true
 }
@@ -68,6 +87,9 @@ func (m *Memoria[K, V]) Get(key K) (V, bool) {
 func (m *Memoria[K, V]) Put(key K, value V) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return
+	}
 
 	if ele, ok := m.dict[key]; ok {
 		// Existing entry: update value and move to front
@@ -94,22 +116,13 @@ func (m *Memoria[K, V]) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.closed {
+		return
+	}
+
 	m.dict = make(map[K]*list.Element, m.capacity)
 	m.ll.Init()
 	m.len = 0
-}
-
-// evict removes the least recently used entry (from the back of the list).
-// It must be called with the lock held.
-func (m *Memoria[K, V]) evict() {
-	ele := m.ll.Back()
-	if ele == nil {
-		return
-	}
-	m.ll.Remove(ele)
-	ent := ele.Value.(*entry[K, V])
-	delete(m.dict, ent.key)
-	m.len--
 }
 
 // Len returns the current number of entries in the cache.
@@ -126,12 +139,25 @@ func (m *Memoria[K, V]) Keys() []K {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.closed {
+		return nil
+	}
+
 	keys := make([]K, 0, m.len)
 	for e := m.ll.Back(); e != nil; e = e.Prev() {
 		ent := e.Value.(*entry[K, V])
 		keys = append(keys, ent.key)
 	}
 	return keys
+}
+
+func (m *Memoria[K, V]) Close() {
+	m.once.Do(func() {
+		m.mu.Lock()
+		m.closed = true
+		close(m.done)
+		m.mu.Unlock()
+	})
 }
 
 func (m *Memoria[K, V]) processEvents() {
@@ -145,12 +171,26 @@ func (m *Memoria[K, V]) processEvents() {
 			}
 			m.mu.Unlock()
 		case <-m.done:
+			m.mu.Lock()
+			m.ch = nil
+			m.dict = nil
+			m.ll = nil
+			m.len = 0
+			m.mu.Unlock()
 			return
 		}
 	}
 }
 
-func (m *Memoria[K, V]) Close() {
-	close(m.done)
-	// optional: drain eventsCh
+// evict removes the least recently used entry (from the back of the list).
+// It must be called with the lock held.
+func (m *Memoria[K, V]) evict() {
+	ele := m.ll.Back()
+	if ele == nil {
+		return
+	}
+	m.ll.Remove(ele)
+	ent := ele.Value.(*entry[K, V])
+	delete(m.dict, ent.key)
+	m.len--
 }
